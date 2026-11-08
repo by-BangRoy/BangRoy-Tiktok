@@ -1,0 +1,6 @@
+{
+  "name": "TikTok Shop Top Rank Booster & 5-Min Auto-Sync",
+  "description": "Alat boost produk pencarian terlaris TikTok Shop terhubung server Open API dengan auto-refresh 5 menit dan optimasi ranking #1 otomatis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
