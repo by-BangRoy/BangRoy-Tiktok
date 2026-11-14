@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import { X, Sparkles, Check, Copy, CheckCircle2, TrendingUp, Video, Tag, Lightbulb, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Sparkles, Check, Copy, CheckCircle2, TrendingUp, Video, Tag, Lightbulb, RefreshCw, ShoppingBag } from 'lucide-react';
 import { TikTokProduct } from '../types';
 
 interface AIOptimizerModalProps {
   isOpen: boolean;
   onClose: () => void;
   product: TikTokProduct | null;
-  onApplyOptimization: (productId: string, optimizedTitle: string, tags: string[]) => void;
+  onApplyOptimization: (productId: string, optimizedTitle: string, tags: string[], tokopediaTitle?: string) => void;
 }
 
 export const AIOptimizerModal: React.FC<AIOptimizerModalProps> = ({
@@ -17,11 +17,22 @@ export const AIOptimizerModal: React.FC<AIOptimizerModalProps> = ({
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [optimizedTitle, setOptimizedTitle] = useState(product?.optimizedTitle || '');
+  const [tokopediaTitle, setTokopediaTitle] = useState(product?.tokopediaTitle || '');
   const [tags, setTags] = useState<string[]>(product?.tags || []);
   const [videoHooks, setVideoHooks] = useState<string[]>([]);
   const [searchStrategy, setSearchStrategy] = useState('');
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-  const [copiedTitle, setCopiedTitle] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (product && isOpen) {
+      setOptimizedTitle(product.optimizedTitle || '');
+      setTokopediaTitle(product.tokopediaTitle || '');
+      setTags(product.tags || []);
+      setVideoHooks([]);
+      setSearchStrategy('');
+    }
+  }, [product, isOpen]);
 
   if (!isOpen || !product) return null;
 
@@ -41,6 +52,7 @@ export const AIOptimizerModal: React.FC<AIOptimizerModalProps> = ({
       const data = await res.json();
       if (data.success) {
         setOptimizedTitle(data.optimizedTitle);
+        if (data.tokopediaTitle) setTokopediaTitle(data.tokopediaTitle);
         setTags(data.trendingTags || []);
         setVideoHooks(data.videoHooks || []);
         setSearchStrategy(data.searchStrategy || '');
@@ -52,20 +64,20 @@ export const AIOptimizerModal: React.FC<AIOptimizerModalProps> = ({
     }
   };
 
+  const handleCopyText = (key: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
+
   const handleCopyHook = (idx: number, hook: string) => {
     navigator.clipboard.writeText(hook);
     setCopiedIndex(idx);
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
-  const handleCopyTitle = () => {
-    navigator.clipboard.writeText(optimizedTitle);
-    setCopiedTitle(true);
-    setTimeout(() => setCopiedTitle(false), 2000);
-  };
-
   const handleApply = () => {
-    onApplyOptimization(product.id, optimizedTitle, tags);
+    onApplyOptimization(product.id, optimizedTitle, tags, tokopediaTitle);
     onClose();
   };
 
@@ -73,17 +85,17 @@ export const AIOptimizerModal: React.FC<AIOptimizerModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
       <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/60">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/70">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-[#FE2C55]/10 rounded-lg text-[#FE2C55] border border-[#FE2C55]/30">
-              <Sparkles className="w-5 h-5" />
+            <div className="p-2 bg-gradient-to-tr from-[#FE2C55]/20 to-[#03AC0E]/20 rounded-xl text-white border border-slate-700">
+              <Sparkles className="w-5 h-5 text-[#25F4EE]" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-white">
-                AI SEO & Viral Hook Generator (Algoritma TikTok)
+              <h3 className="text-base font-bold text-white">
+                AI SEO & Viral Hook Generator (TikTok Shop + Tokopedia)
               </h3>
               <p className="text-xs text-slate-400">
-                Optimasi Judul, Kata Kunci & Hook Penjualan untuk Peringkat #1 Terlaris
+                Optimasi Formula Judul & Kata Kunci Terlaris untuk Kedua Platform
               </p>
             </div>
           </div>
@@ -110,46 +122,73 @@ export const AIOptimizerModal: React.FC<AIOptimizerModalProps> = ({
             <button
               onClick={handleGenerateAI}
               disabled={isLoading}
-              className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-[#25F4EE] border border-slate-700 rounded-lg text-xs font-medium flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-[#25F4EE] border border-slate-700 rounded-lg text-xs font-medium flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
               <span>{isLoading ? 'Menganalisis Algoritma...' : 'Re-Generate Formula AI'}</span>
             </button>
           </div>
 
-          {/* Optimized Title Section */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                <Tag className="w-3.5 h-3.5 text-[#25F4EE]" />
-                <span>Formula Judul Algoritma TikTok Shop (Exact Search Match)</span>
-              </label>
-              <button
-                onClick={handleCopyTitle}
-                className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer transition-colors"
-              >
-                {copiedTitle ? (
-                  <>
-                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                    <span className="text-emerald-400">Tersalin!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3 h-3" />
-                    <span>Salin Judul</span>
-                  </>
-                )}
-              </button>
+          {/* Dual Optimized Title Section */}
+          <div className="space-y-4">
+            {/* TikTok Title */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[#FE2C55]" />
+                  <span>Formula Judul TikTok Shop #1 (Viral & BPOM/Garansi)</span>
+                </label>
+                <button
+                  onClick={() => handleCopyText('tk_title', optimizedTitle)}
+                  className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  {copiedKey === 'tk_title' ? (
+                    <span className="text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Tersalin!
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1">
+                      <Copy className="w-3 h-3" /> Salin Judul TikTok
+                    </span>
+                  )}
+                </button>
+              </div>
+              <textarea
+                rows={2}
+                value={optimizedTitle}
+                onChange={(e) => setOptimizedTitle(e.target.value)}
+                className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-slate-200 focus:outline-none focus:border-[#FE2C55] leading-relaxed"
+              />
             </div>
-            <textarea
-              rows={3}
-              value={optimizedTitle}
-              onChange={(e) => setOptimizedTitle(e.target.value)}
-              className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-slate-200 focus:outline-none focus:border-[#25F4EE] leading-relaxed"
-            />
-            <div className="flex justify-between text-[11px] text-slate-500 font-mono">
-              <span>Formula: [Kredensial] + [Merek] + [Kata Kunci Utama] + [Varian] + [Trigger Viral]</span>
-              <span>{optimizedTitle.length}/100 karakter</span>
+
+            {/* Tokopedia Title */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[#03AC0E]" />
+                  <span>Formula Judul Tokopedia SEO (Official Store Standard)</span>
+                </label>
+                <button
+                  onClick={() => handleCopyText('tkpd_title', tokopediaTitle)}
+                  className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  {copiedKey === 'tkpd_title' ? (
+                    <span className="text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Tersalin!
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1">
+                      <Copy className="w-3 h-3" /> Salin Judul Tokopedia
+                    </span>
+                  )}
+                </button>
+              </div>
+              <textarea
+                rows={2}
+                value={tokopediaTitle}
+                onChange={(e) => setTokopediaTitle(e.target.value)}
+                className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-slate-200 focus:outline-none focus:border-[#03AC0E] leading-relaxed"
+              />
             </div>
           </div>
 
@@ -158,13 +197,13 @@ export const AIOptimizerModal: React.FC<AIOptimizerModalProps> = ({
             <div className="p-3.5 bg-slate-950/70 border border-slate-800 rounded-xl space-y-1">
               <div className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
                 <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
-                <span>Taktik Peringkat Algoritma:</span>
+                <span>Taktik Peringkat Algoritma Dual Platform:</span>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">{searchStrategy}</p>
             </div>
           )}
 
-          {/* Video Hooks for Affiliate / Live (Essential for sales velocity) */}
+          {/* Video Hooks */}
           <div className="space-y-2">
             <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
               <Video className="w-3.5 h-3.5 text-[#FE2C55]" />
@@ -174,9 +213,9 @@ export const AIOptimizerModal: React.FC<AIOptimizerModalProps> = ({
               {(videoHooks.length > 0
                 ? videoHooks
                 : [
-                    `"Kalian masih beli yang mahal? Padahal ${product.targetKeyword} yang viral di pencarian TikTok lagi banting harga!"`,
-                    `"Jangan di-checkout dulu sebelum lihat ini! Kenapa produk ini nomor 1 terlaris di TikTok Shop..."`,
-                    `"Spill ${product.targetKeyword} yang bikin heboh di live stream! Klik keranjang kuning sekarang sebelum kehabisan kupon."`,
+                    `"Kalian masih beli yang mahal? Padahal ${product.targetKeyword} yang viral di pencarian TikTok & Tokopedia lagi banting harga!"`,
+                    `"Jangan di-checkout dulu sebelum lihat ini! Kenapa produk ini nomor 1 terlaris di TikTok Shop dan Tokopedia..."`,
+                    `"Spill ${product.targetKeyword} yang bikin heboh! Langsung klik keranjang kuning atau check out Tokopedia sebelum kehabisan."`,
                   ]
               ).map((hook, idx) => (
                 <div
@@ -203,7 +242,7 @@ export const AIOptimizerModal: React.FC<AIOptimizerModalProps> = ({
           {/* Trending Tags */}
           <div className="space-y-2">
             <label className="text-xs font-semibold text-slate-200 block">
-              Kata Kunci Pencarian Relevansi Tinggi (Terinjeksi Otomatis):
+              Kata Kunci Pencarian Terlaris (Sinkron ke Kedua Mesin Pencari):
             </label>
             <div className="flex flex-wrap gap-1.5">
               {tags.map((t, idx) => (
@@ -219,7 +258,7 @@ export const AIOptimizerModal: React.FC<AIOptimizerModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800 bg-slate-950/60">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800 bg-slate-950/70">
           <button
             onClick={onClose}
             className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white transition-colors cursor-pointer"
@@ -228,10 +267,10 @@ export const AIOptimizerModal: React.FC<AIOptimizerModalProps> = ({
           </button>
           <button
             onClick={handleApply}
-            className="px-4 py-2 bg-gradient-to-r from-[#25F4EE] to-emerald-400 hover:from-[#20ded8] hover:to-emerald-500 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+            className="px-4 py-2 bg-gradient-to-r from-[#25F4EE] via-emerald-400 to-[#03AC0E] hover:opacity-95 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
           >
             <CheckCircle2 className="w-4 h-4" />
-            <span>Terapkan Judul ke Listing TikTok Shop</span>
+            <span>Terapkan ke Listing TikTok & Tokopedia</span>
           </button>
         </div>
       </div>

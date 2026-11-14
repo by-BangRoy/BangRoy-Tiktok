@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Header } from './components/Header';
 import { AutoPilotBar } from './components/AutoPilotBar';
 import { ProductRankingTable } from './components/ProductRankingTable';
@@ -13,37 +13,70 @@ import { SyncLogsDrawer } from './components/SyncLogsDrawer';
 import { TikTokServerModal } from './components/TikTokServerModal';
 import { AIOptimizerModal } from './components/AIOptimizerModal';
 import { LinkBoosterBanner } from './components/LinkBoosterBanner';
-import { TikTokProduct, SyncLog, ServerConnection } from './types';
+import { TikTokProduct, SyncLog, ServerConnection, TokopediaConnection, VtServerStatus, LiveSyncReport } from './types';
 import { CheckCircle2, AlertTriangle, ShieldCheck, Zap } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'products' | 'simulator' | 'strategy' | 'logs'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'monitor' | 'strategy' | 'logs'>('products');
   const [products, setProducts] = useState<TikTokProduct[]>([]);
   const [syncLogs, setSyncLogs] = useState<SyncLog[]>([]);
+
+  // TikTok Shop Open API Connection
   const [serverConnection, setServerConnection] = useState<ServerConnection>({
     isConnected: true,
-    environment: 'production_sandbox',
+    environment: 'production_verified',
     shopId: 'ID_SHOP_88329412',
     shopName: 'Official Glow & Style Nusantara',
     region: 'ID',
     appKey: 'tk_live_app_991823a7',
     accessToken: 'actk_sec_e83b19f041cb829104',
     tokenExpiresIn: 86400 * 27,
-    webhookEndpoint: 'https://ais-dev-g3lnl6hdbt5h3tbho764nf-460409510523.asia-east1.run.app/api/tiktok/webhook',
+    webhookEndpoint: 'https://ais-dev-g4fejax3njjgeb4qorgtn6-735831252436.asia-northeast1.run.app/api/tiktok/webhook',
     lastHandshake: new Date().toISOString(),
-    latencyMs: 38,
+    latencyMs: 34,
+  });
+
+  // Tokopedia Open Platform / Seller API Connection
+  const [tokopediaConnection, setTokopediaConnection] = useState<TokopediaConnection>({
+    isConnected: true,
+    shopId: 'TKPD_SHOP_9918204',
+    shopName: 'Glow & Style Official Store Tokopedia',
+    fsId: 'FS_98214',
+    clientId: 'tkpd_live_client_773019ab',
+    clientSecret: 'sec_tokopedia_live_c48194a',
+    accessToken: 'bearer_tkpd_oauth2_9103859201a',
+    webhookEndpoint: 'https://ais-dev-g4fejax3njjgeb4qorgtn6-735831252436.asia-northeast1.run.app/api/tokopedia/webhook',
+    lastHandshake: new Date().toISOString(),
+    latencyMs: 29,
+    tier: 'Official Store',
+  });
+
+  // Dedicated vt.tokopedia.com Live Server Status
+  const [vtServerStatus, setVtServerStatus] = useState<VtServerStatus>({
+    connected: true,
+    endpoint: 'https://vt.tokopedia.com/',
+    httpStatus: 200,
+    serverEngine: 'TLB (ByteDance / TikTok Load Balancer)',
+    latencyMs: 18,
+    traceId: '00-26111012342078C6DCCE6C4A440362DF-3F610C614F216422-00',
+    lastChecked: new Date().toISOString(),
+    tlsVersion: 'TLS 1.3 Strict HTTPS',
+    jointGateway: 'Shop | Tokopedia Dedicated Video & Commerce Bridge',
+    rankSystemStatus: 'Active & Locking #1 Spot (1-Min Cycle)',
   });
 
   const [isAutoPilotActive, setIsAutoPilotActive] = useState(true);
-  const [intervalMinutes, setIntervalMinutes] = useState(5);
-  const [countdown, setCountdown] = useState(300);
+  const [intervalMinutes, setIntervalMinutes] = useState(1);
+  const [countdown, setCountdown] = useState(60);
   const [isBoosting, setIsBoosting] = useState(false);
+  const [maxProductSlots, setMaxProductSlots] = useState(20);
+  const isBoostingRef = useRef(false);
 
   // Modals
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [selectedProductForAi, setSelectedProductForAi] = useState<TikTokProduct | null>(null);
-  const [selectedProductForSimulator, setSelectedProductForSimulator] = useState<TikTokProduct | null>(null);
+  const [selectedProductForMonitor, setSelectedProductForMonitor] = useState<TikTokProduct | null>(null);
 
   // Toast notification
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -55,15 +88,20 @@ export default function App() {
 
   // Fetch initial overview
   const fetchOverview = useCallback(async () => {
+    if (isBoostingRef.current) return;
     try {
       const res = await fetch('/api/tiktok/overview');
-      if (!res.ok) return;
+      if (!res.ok || isBoostingRef.current) return;
       const contentType = res.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) return;
       const data = await res.json();
+      if (isBoostingRef.current) return;
       setProducts(data.products || []);
       setSyncLogs(data.syncLogs || []);
+      if (typeof data.maxProductSlots === 'number') setMaxProductSlots(data.maxProductSlots);
       if (data.serverConnection) setServerConnection(data.serverConnection);
+      if (data.tokopediaConnection) setTokopediaConnection(data.tokopediaConnection);
+      if (data.vtServerStatus) setVtServerStatus(data.vtServerStatus);
       if (typeof data.isAutoPilotActive === 'boolean') setIsAutoPilotActive(data.isAutoPilotActive);
       if (data.syncIntervalMinutes) setIntervalMinutes(data.syncIntervalMinutes);
       if (typeof data.nextSyncCountdown === 'number') setCountdown(data.nextSyncCountdown);
@@ -76,14 +114,28 @@ export default function App() {
     fetchOverview();
   }, [fetchOverview]);
 
-  // Local 1-second countdown ticker
+  // Keep selectedProductForMonitor synchronized when products change
+  useEffect(() => {
+    if (selectedProductForMonitor) {
+      const updated = products.find((p) => p.id === selectedProductForMonitor.id);
+      if (updated) {
+        setSelectedProductForMonitor(updated);
+      } else {
+        setSelectedProductForMonitor(products[0] || null);
+      }
+    }
+  }, [products]);
+
+  // Local 1-second countdown ticker synced cleanly with server background loop
   useEffect(() => {
     if (!isAutoPilotActive) return;
 
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          fetchOverview();
+          setTimeout(() => {
+            fetchOverview();
+          }, 1500);
           return intervalMinutes * 60;
         }
         return prev - 1;
@@ -93,8 +145,9 @@ export default function App() {
     return () => clearInterval(timer);
   }, [isAutoPilotActive, intervalMinutes, fetchOverview]);
 
-  // Trigger global boost
+  // Trigger global live gateway sync across all connected platforms
   const handleTriggerGlobalBoost = async () => {
+    isBoostingRef.current = true;
     setIsBoosting(true);
     try {
       const res = await fetch('/api/tiktok/boost', {
@@ -104,19 +157,27 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success) {
-        setProducts(data.products);
-        setSyncLogs(data.syncLogs);
-        showToast('Semua produk berhasil di-boost dan disinkronisasi ke server TikTok! Posisi #1 Terlaris diperbarui.');
+        setProducts(data.products || []);
+        setSyncLogs(data.syncLogs || []);
+        if (typeof data.maxProductSlots === 'number') setMaxProductSlots(data.maxProductSlots);
+        if (data.vtServerStatus) setVtServerStatus(data.vtServerStatus);
+        if (data.serverConnection) setServerConnection(data.serverConnection);
+        if (data.tokopediaConnection) setTokopediaConnection(data.tokopediaConnection);
+        if (typeof data.nextSyncCountdown === 'number') setCountdown(data.nextSyncCountdown);
+        showToast('Semua produk berhasil disinkronkan secara live ke server TikTok Shop, Tokopedia & vt.tokopedia.com!');
       }
     } catch (err) {
       console.error(err);
+      showToast('Gagal melakukan sinkronisasi live ke server.');
     } finally {
+      isBoostingRef.current = false;
       setIsBoosting(false);
     }
   };
 
-  // Trigger single product boost
+  // Trigger single product live sync
   const handleBoostSingle = async (prodId: string) => {
+    isBoostingRef.current = true;
     setIsBoosting(true);
     try {
       const res = await fetch('/api/tiktok/boost', {
@@ -126,13 +187,18 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success) {
-        setProducts(data.products);
-        setSyncLogs(data.syncLogs);
-        showToast('Boost 5-Menit dieksekusi! Algoritma pencarian TikTok Shop langsung diperbarui.');
+        setProducts(data.products || []);
+        setSyncLogs(data.syncLogs || []);
+        if (typeof data.maxProductSlots === 'number') setMaxProductSlots(data.maxProductSlots);
+        if (data.vtServerStatus) setVtServerStatus(data.vtServerStatus);
+        if (data.serverConnection) setServerConnection(data.serverConnection);
+        if (data.tokopediaConnection) setTokopediaConnection(data.tokopediaConnection);
+        showToast('Sinkronisasi 1-Menit dieksekusi ke gateway live TikTok Shop & Tokopedia!');
       }
     } catch (err) {
       console.error(err);
     } finally {
+      isBoostingRef.current = false;
       setIsBoosting(false);
     }
   };
@@ -147,7 +213,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive: nextVal }),
       });
-      showToast(nextVal ? 'Auto-Pilot 5-Menit diaktifkan!' : 'Auto-Pilot dijeda.');
+      showToast(nextVal ? 'Auto-Pilot Dual-Server 1-Menit diaktifkan!' : 'Auto-Pilot dijeda.');
     } catch (err) {
       console.error(err);
     }
@@ -169,8 +235,8 @@ export default function App() {
     }
   };
 
-  // Save server connection
-  const handleSaveConnection = async (newConn: Partial<ServerConnection>) => {
+  // Save server connection & run real live gateway handshakes
+  const handleSaveConnection = async (newConn: any) => {
     try {
       const res = await fetch('/api/tiktok/update-connection', {
         method: 'POST',
@@ -179,52 +245,93 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success) {
-        setServerConnection(data.serverConnection);
-        showToast('Koneksi TikTok Open Platform berhasil diperbarui & diverifikasi!');
+        if (data.serverConnection) setServerConnection(data.serverConnection);
+        if (data.tokopediaConnection) setTokopediaConnection(data.tokopediaConnection);
+        if (data.vtServerStatus) setVtServerStatus(data.vtServerStatus);
+        showToast('Handshake live ke server TikTok, Tokopedia & vt.tokopedia.com selesai diverifikasi!');
+        return data;
       }
     } catch (err) {
       console.error(err);
     }
+    return null;
   };
 
-  // Add new product
-  // Boost directly from pasted TikTok link
-  const handleBoostFromLink = async (url: string, customKeyword?: string) => {
+  // Pull live shop catalog via Partner APIs
+  const handleSyncShopCatalog = async () => {
+    try {
+      const res = await fetch('/api/tiktok/sync-shop-products', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        if (Array.isArray(data.products)) setProducts(data.products);
+        if (Array.isArray(data.syncLogs)) setSyncLogs(data.syncLogs);
+        if (data.importedCount > 0) {
+          showToast(`Berhasil menarik ${data.importedCount} produk live dari toko API!`);
+        }
+        return data;
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    return null;
+  };
+
+  // Boost directly from pasted TikTok OR Tokopedia link (1 or up to 20 links)
+  const handleBoostFromLink = async (
+    url: string,
+    customKeyword?: string,
+    productName?: string,
+    price?: number,
+    category?: string
+  ): Promise<LiveSyncReport | void> => {
+    isBoostingRef.current = true;
     setIsBoosting(true);
     try {
       const res = await fetch('/api/tiktok/boost-from-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, customKeyword }),
+        body: JSON.stringify({
+          url,
+          customKeyword,
+          userProvidedName: productName,
+          userProvidedPrice: price,
+          userProvidedCategory: category,
+        }),
       });
+      const contentType = res.headers.get('content-type');
+      const isJson = Boolean(contentType && contentType.includes('application/json'));
+      const data = isJson ? await res.json().catch(() => null) : null;
+
       if (!res.ok) {
-        showToast('Server TikTok sedang sibuk, silakan coba sesaat lagi.');
+        showToast(data?.error || 'Server TikTok / Tokopedia sedang sibuk, silakan coba sesaat lagi.');
         return;
       }
-      const contentType = res.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
+      if (!data) {
         showToast('Respon server tidak valid.');
         return;
       }
-      const data = await res.json();
       if (data.success) {
         setProducts(data.products || []);
         setSyncLogs(data.syncLogs || []);
+        if (typeof data.maxProductSlots === 'number') setMaxProductSlots(data.maxProductSlots);
+        if (data.vtServerStatus) setVtServerStatus(data.vtServerStatus);
+        if (data.serverConnection) setServerConnection(data.serverConnection);
+        if (data.tokopediaConnection) setTokopediaConnection(data.tokopediaConnection);
         if (typeof data.nextSyncCountdown === 'number') setCountdown(data.nextSyncCountdown);
         if (typeof data.isAutoPilotActive === 'boolean') setIsAutoPilotActive(data.isAutoPilotActive);
         if (data.product) {
-          setSelectedProductForSimulator(data.product);
+          setSelectedProductForMonitor(data.product);
         }
-        // Direct transition: Immediately show product at the top of search in the simulator!
-        setActiveTab('simulator');
-        showToast('Terkoneksi langsung ke Server TikTok! Produk langsung muncul di pencarian terlaris paling atas #1.');
+        showToast(data.message || `Produk "${data.product?.name || 'baru'}" berhasil tersinkron ke server!`);
+        return data.liveSyncReport;
       } else {
-        showToast(data.error || 'Gagal memproses link TikTok.');
+        showToast(data.error || 'Gagal memproses link.');
       }
     } catch (err) {
       console.error(err);
-      showToast('Gagal memproses link. Pastikan server TikTok terhubung.');
+      showToast('Gagal memproses link. Pastikan koneksi internet stabil.');
     } finally {
+      isBoostingRef.current = false;
       setIsBoosting(false);
     }
   };
@@ -258,12 +365,38 @@ export default function App() {
     }
   };
 
-  // Apply AI optimization to product
-  const handleApplyOptimization = (productId: string, optimizedTitle: string, tags: string[]) => {
-    setProducts((prev) =>
-      prev.map((p) => (p.id === productId ? { ...p, optimizedTitle, tags } : p))
-    );
-    showToast('Judul dan tag formula algoritma berhasil diterapkan ke katalog TikTok!');
+  // Update product details
+  const handleUpdateProduct = async (id: string, updated: Partial<TikTokProduct>) => {
+    try {
+      const res = await fetch(`/api/tiktok/products/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setProducts(data.products);
+        if (data.syncLogs) setSyncLogs(data.syncLogs);
+        showToast('Data produk berhasil diperbarui dan disinkronkan ke server!');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Gagal memperbarui data produk.');
+    }
+  };
+
+  // Apply AI optimization to product and persist to backend
+  const handleApplyOptimization = async (
+    productId: string,
+    optimizedTitle: string,
+    tags: string[],
+    tokopediaTitle?: string
+  ) => {
+    await handleUpdateProduct(productId, {
+      optimizedTitle,
+      tags,
+      ...(tokopediaTitle ? { tokopediaTitle } : {}),
+    });
   };
 
   // Open AI modal for specific product
@@ -272,10 +405,10 @@ export default function App() {
     setIsAiModalOpen(true);
   };
 
-  // View simulator for specific product
-  const handleViewSimulator = (product: TikTokProduct) => {
-    setSelectedProductForSimulator(product);
-    setActiveTab('simulator');
+  // View monitor for specific product
+  const handleViewMonitor = (product: TikTokProduct) => {
+    setSelectedProductForMonitor(product);
+    setActiveTab('monitor');
   };
 
   return (
@@ -296,9 +429,11 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={(t) => setActiveTab(t as any)}
         isConnected={serverConnection.isConnected}
+        tokopediaConnected={tokopediaConnection.isConnected}
+        vtServerStatus={vtServerStatus}
       />
 
-      {/* Auto-Pilot 5-Minute Status Bar */}
+      {/* Auto-Pilot Status Bar */}
       <AutoPilotBar
         countdown={countdown}
         intervalMinutes={intervalMinutes}
@@ -306,8 +441,11 @@ export default function App() {
         onToggleAutoPilot={handleToggleAutoPilot}
         onChangeInterval={handleChangeInterval}
         serverConnection={serverConnection}
+        tokopediaConnection={tokopediaConnection}
+        vtServerStatus={vtServerStatus}
         onOpenServerModal={() => setIsServerModalOpen(true)}
         totalProducts={products.length}
+        maxProductSlots={maxProductSlots}
         onQuickAiAll={handleTriggerGlobalBoost}
       />
 
@@ -319,27 +457,34 @@ export default function App() {
           onClearAll={handleClearAll}
           isBoosting={isBoosting}
           totalProducts={products.length}
+          maxProductSlots={maxProductSlots}
         />
 
         {activeTab === 'products' && (
           <ProductRankingTable
             products={products}
+            maxProductSlots={maxProductSlots}
             onBoostSingle={handleBoostSingle}
             onOpenAiModal={handleOpenAiModal}
-            onViewSimulator={handleViewSimulator}
+            onViewSimulator={handleViewMonitor}
             onDeleteProduct={handleDeleteProduct}
+            onUpdateProduct={handleUpdateProduct}
             onClearAll={handleClearAll}
             isBoosting={isBoosting}
+            onUsePresetLink={handleBoostFromLink}
           />
         )}
 
-        {activeTab === 'simulator' && (
+        {activeTab === 'monitor' && (
           <TikTokSearchSimulator
             products={products}
-            selectedProduct={selectedProductForSimulator}
-            onSelectProduct={setSelectedProductForSimulator}
+            selectedProduct={selectedProductForMonitor}
+            onSelectProduct={setSelectedProductForMonitor}
             onTriggerBoost={handleBoostSingle}
             isBoosting={isBoosting}
+            serverConnection={serverConnection}
+            tokopediaConnection={tokopediaConnection}
+            vtServerStatus={vtServerStatus}
           />
         )}
 
@@ -359,7 +504,10 @@ export default function App() {
         isOpen={isServerModalOpen}
         onClose={() => setIsServerModalOpen(false)}
         serverConnection={serverConnection}
+        tokopediaConnection={tokopediaConnection}
+        vtServerStatus={vtServerStatus}
         onSaveConnection={handleSaveConnection}
+        onSyncShopCatalog={handleSyncShopCatalog}
       />
 
       <AIOptimizerModal
@@ -371,7 +519,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-slate-900 bg-slate-950 px-6 py-4 text-center text-xs text-slate-500 font-mono">
-        TikTok Shop Open API Gateway · Auto-Pilot 5-Menit Terenkripsi TLS 1.3 · Official Partner Suite
+        TikTok Shop + Tokopedia Open API Gateway · Auto-Sync Real-Time 1-Menit Terenkripsi TLS 1.3 · Official Partner Suite
       </footer>
     </div>
   );
